@@ -144,16 +144,19 @@ def _resolve_streamlit_script() -> Path:
 
 
 def _run_streamlit_server(host: str, port: int) -> None:
+    from streamlit import config as streamlit_config
     from streamlit.web import bootstrap
 
-    script_path = _resolve_streamlit_script()
+    script_path = _resolve_streamlit_script().resolve()
+    streamlit_config._main_script_path = str(script_path)
     flags = {
-        "server.address": host,
-        "server.port": port,
-        "server.baseUrlPath": "",
-        "server.headless": True,
-        "browser.gatherUsageStats": False,
+        "server_address": host,
+        "server_port": port,
+        "server_baseUrlPath": "",
+        "server_headless": True,
+        "browser_gatherUsageStats": False,
     }
+    bootstrap.load_config_options(flag_options=flags)
     bootstrap.run(str(script_path), False, [], flags)
 
 

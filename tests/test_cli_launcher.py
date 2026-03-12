@@ -137,6 +137,48 @@ def test_probe_streamlit_readiness_rejects_connection_failure(monkeypatch: pytes
     assert readiness.root_ok is False
 
 
+def test_run_streamlit_server_loads_config_before_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    from streamlit import config as streamlit_config
+    from streamlit.web import bootstrap
+
+    script_path = Path("/tmp/fake_streamlit_app.py")
+    monkeypatch.setattr(launcher_module, "_resolve_streamlit_script", lambda: script_path)
+    monkeypatch.setattr(streamlit_config, "_main_script_path", "", raising=False)
+
+    calls: list[str] = []
+    captured: dict[str, object] = {}
+
+    def fake_load_config_options(flag_options: dict[str, object]) -> None:
+        calls.append("load")
+        captured["load_flags"] = dict(flag_options)
+
+    def fake_run(main_script_path: str, is_hello: bool, args: list[str], flag_options: dict[str, object]) -> None:
+        calls.append("run")
+        captured["main_script_path"] = main_script_path
+        captured["is_hello"] = is_hello
+        captured["args"] = list(args)
+        captured["run_flags"] = dict(flag_options)
+
+    monkeypatch.setattr(bootstrap, "load_config_options", fake_load_config_options)
+    monkeypatch.setattr(bootstrap, "run", fake_run)
+
+    launcher_module._run_streamlit_server("127.0.0.1", 9321)
+
+    assert calls == ["load", "run"]
+    assert streamlit_config._main_script_path == str(script_path.resolve())
+    assert captured["main_script_path"] == str(script_path.resolve())
+    assert captured["is_hello"] is False
+    assert captured["args"] == []
+
+    flags = captured["load_flags"]
+    assert flags == captured["run_flags"]
+    assert flags["server_address"] == "127.0.0.1"
+    assert flags["server_port"] == 9321
+    assert flags["server_baseUrlPath"] == ""
+    assert flags["server_headless"] is True
+    assert flags["browser_gatherUsageStats"] is False
+
+
 def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 2)
     monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)

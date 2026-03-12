@@ -18,4 +18,4 @@ SUPPLIER_ALIAS_MAP = {
     "郁小梅": "柳辉",
 }
 
-EXCLUDED_SUPPLIER_KEYWORDS = ["楚天鸿大", "思尔康", "烨联", "航亿", "兴韵"]
+EXCLUDED_SUPPLIER_KEYWORDS = []
