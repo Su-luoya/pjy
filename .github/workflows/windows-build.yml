@@ -67,8 +67,13 @@ jobs:
           $stderrLog = Join-Path $env:RUNNER_TEMP "supplier-analysis-stderr.log"
           Remove-Item $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
 
+          $launcherEnv = @{
+            PYTHONIOENCODING = "utf-8"
+          }
+
           $exe = Resolve-Path dist/supplier-analysis/supplier-analysis.exe
           $proc = Start-Process -FilePath $exe -ArgumentList "--no-browser","--port",$port -PassThru `
+            -Environment $launcherEnv `
             -RedirectStandardOutput $stdoutLog `
             -RedirectStandardError $stderrLog
           try {

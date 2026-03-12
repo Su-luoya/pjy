@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
 import socket
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -180,6 +183,40 @@ def test_run_streamlit_server_loads_config_before_run(monkeypatch: pytest.Monkey
     assert flags["browser_gatherUsageStats"] is False
 
 
+def test_configure_stdio_error_handlers_updates_reconfigure_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Reconfigurable:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+
+        def reconfigure(self, **kwargs: str) -> None:
+            self.calls.append(kwargs)
+
+    stdout = _Reconfigurable()
+    stderr = _Reconfigurable()
+    monkeypatch.setattr(launcher_module, "sys", SimpleNamespace(stdout=stdout, stderr=stderr, executable=sys.executable))
+
+    launcher_module._configure_stdio_error_handlers()
+
+    assert stdout.calls == [{"errors": "backslashreplace"}]
+    assert stderr.calls == [{"errors": "backslashreplace"}]
+
+
+def test_configure_stdio_error_handlers_ignores_non_reconfigurable_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Raises:
+        def reconfigure(self, **_kwargs: str) -> None:
+            raise RuntimeError("boom")
+
+    fake_stdout = object()
+    fake_stderr = _Raises()
+    monkeypatch.setattr(
+        launcher_module,
+        "sys",
+        SimpleNamespace(stdout=fake_stdout, stderr=fake_stderr, executable=sys.executable),
+    )
+
+    launcher_module._configure_stdio_error_handlers()
+
+
 def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 2)
     monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
@@ -222,6 +259,29 @@ def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPat
     assert popen_calls[0][1] == {"FOO": "BAR"}
     assert all_processes[0].terminated is True
     assert browser_opened == []
+
+
+def test_parent_success_with_cp1252_stdout_after_stdio_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 1)
+    monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(launcher_module, "is_port_available", lambda _host, _port: True)
+    monkeypatch.setattr(launcher_module, "_build_worker_env", lambda: {"FOO": "BAR"})
+    monkeypatch.setattr(launcher_module, "wait_for_http_ready", lambda *_args, **_kwargs: (True, "ok"))
+    monkeypatch.setattr(launcher_module.subprocess, "Popen", lambda _command, env=None: _FakeProcess())
+    monkeypatch.setattr(launcher_module.webbrowser, "open", lambda _url: None)
+
+    stdout_buffer = io.BytesIO()
+    stderr_buffer = io.BytesIO()
+    strict_stdout = io.TextIOWrapper(stdout_buffer, encoding="cp1252", errors="strict")
+    strict_stderr = io.TextIOWrapper(stderr_buffer, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", strict_stdout)
+    monkeypatch.setattr(sys, "stderr", strict_stderr)
+
+    launcher_module._configure_stdio_error_handlers()
+    exit_code = launcher_module._run_parent("127.0.0.1", preferred_port=8501, no_browser=True)
+
+    assert exit_code == 0
+    assert strict_stdout.errors == "backslashreplace"
 
 
 def test_parent_reports_child_early_exit_without_opening_browser(monkeypatch: pytest.MonkeyPatch) -> None:
