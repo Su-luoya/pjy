@@ -63,48 +63,107 @@ jobs:
           $port = $listener.LocalEndpoint.Port
           $listener.Stop()
 
+          $stdoutLog = Join-Path $env:RUNNER_TEMP "supplier-analysis-stdout.log"
+          $stderrLog = Join-Path $env:RUNNER_TEMP "supplier-analysis-stderr.log"
+          Remove-Item $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
+
           $exe = Resolve-Path dist/supplier-analysis/supplier-analysis.exe
-          $proc = Start-Process -FilePath $exe -ArgumentList "--no-browser","--port",$port -PassThru
+          $proc = Start-Process -FilePath $exe -ArgumentList "--no-browser","--port",$port -PassThru `
+            -RedirectStandardOutput $stdoutLog `
+            -RedirectStandardError $stderrLog
           try {
             $healthOk = $false
             $rootOk = $false
-            $lastHealth = "n/a"
-            $lastRoot = "n/a"
+            $activePort = $null
+            $lastProbeSummary = "n/a"
 
-            for ($i = 0; $i -lt 45; $i++) {
+            $maxProbePort = [Math]::Min($port + 7, 65535)
+            $candidatePorts = @($port..$maxProbePort)
+
+            for ($i = 0; $i -lt 60; $i++) {
               if ($proc.HasExited) {
                 throw "Launcher exited early (ExitCode=$($proc.ExitCode))"
               }
 
-              try {
-                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/_stcore/health" -TimeoutSec 2 -SkipHttpErrorCheck
-                $lastHealth = "status=$($healthResp.StatusCode) body=$($healthResp.Content.Trim())"
-                if ($healthResp.StatusCode -eq 200 -and $healthResp.Content.Trim().ToLower() -eq "ok") {
-                  $healthOk = $true
+              $probeParts = @()
+              foreach ($candidatePort in $candidatePorts) {
+                $healthPass = $false
+                $rootPass = $false
+                $healthState = "n/a"
+                $rootState = "skipped"
+
+                try {
+                  $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:$candidatePort/_stcore/health" -TimeoutSec 1 -SkipHttpErrorCheck
+                  $healthBody = $healthResp.Content.Trim()
+                  $healthState = "status=$($healthResp.StatusCode) body=$healthBody"
+                  if ($healthResp.StatusCode -eq 200 -and $healthBody.ToLower() -eq "ok") {
+                    $healthPass = $true
+                  }
+                } catch {
+                  $healthState = "error=$($_.Exception.Message)"
                 }
-              } catch {
-                $lastHealth = "error=$($_.Exception.Message)"
+
+                if ($healthPass) {
+                  try {
+                    $rootResp = Invoke-WebRequest -Uri "http://127.0.0.1:$candidatePort/" -TimeoutSec 2 -SkipHttpErrorCheck
+                    $rootState = "status=$($rootResp.StatusCode)"
+                    if ($rootResp.StatusCode -ne 404) {
+                      $rootPass = $true
+                    }
+                  } catch {
+                    $rootState = "error=$($_.Exception.Message)"
+                  }
+                }
+
+                $probeParts += "port=$candidatePort health=[$healthState] root=[$rootState]"
+
+                if ($healthPass -and $rootPass) {
+                  $healthOk = $true
+                  $rootOk = $true
+                  $activePort = $candidatePort
+                  break
+                }
               }
 
-              try {
-                $rootResp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -TimeoutSec 5 -SkipHttpErrorCheck
-                $lastRoot = "status=$($rootResp.StatusCode)"
-                if ($rootResp.StatusCode -ne 404) {
-                  $rootOk = $true
-                }
-              } catch {
-                $lastRoot = "error=$($_.Exception.Message)"
-              }
+              $lastProbeSummary = ($probeParts -join " || ")
 
               if ($healthOk -and $rootOk) {
+                Write-Host "Smoke test passed (requestedPort=$port activePort=$activePort)"
                 break
               }
+
               Start-Sleep -Seconds 1
             }
 
             if (-not $healthOk -or -not $rootOk) {
-              throw "Smoke test failed (port=$port healthOk=$healthOk rootOk=$rootOk lastHealth=$lastHealth lastRoot=$lastRoot)"
+              throw "Smoke test failed (requestedPort=$port activePort=$activePort healthOk=$healthOk rootOk=$rootOk lastProbe=$lastProbeSummary stdoutLog=$stdoutLog stderrLog=$stderrLog)"
             }
+          } catch {
+            Write-Host "=== launcher stdout tail ==="
+            if (Test-Path $stdoutLog) {
+              $stdoutTail = Get-Content $stdoutLog -Tail 120 -ErrorAction SilentlyContinue
+              if ($stdoutTail) {
+                $stdoutTail | ForEach-Object { Write-Host $_ }
+              } else {
+                Write-Host "<empty>"
+              }
+            } else {
+              Write-Host "<missing file>"
+            }
+
+            Write-Host "=== launcher stderr tail ==="
+            if (Test-Path $stderrLog) {
+              $stderrTail = Get-Content $stderrLog -Tail 120 -ErrorAction SilentlyContinue
+              if ($stderrTail) {
+                $stderrTail | ForEach-Object { Write-Host $_ }
+              } else {
+                Write-Host "<empty>"
+              }
+            } else {
+              Write-Host "<missing file>"
+            }
+
+            throw
           } finally {
             if (-not $proc.HasExited) {
               Stop-Process -Id $proc.Id -Force

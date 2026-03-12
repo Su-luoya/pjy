@@ -154,6 +154,7 @@ def _run_streamlit_server(host: str, port: int) -> None:
         "server_port": port,
         "server_baseUrlPath": "",
         "server_headless": True,
+        "global_developmentMode": False,
         "browser_gatherUsageStats": False,
     }
     bootstrap.load_config_options(flag_options=flags)

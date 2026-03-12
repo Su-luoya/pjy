@@ -176,6 +176,7 @@ def test_run_streamlit_server_loads_config_before_run(monkeypatch: pytest.Monkey
     assert flags["server_port"] == 9321
     assert flags["server_baseUrlPath"] == ""
     assert flags["server_headless"] is True
+    assert flags["global_developmentMode"] is False
     assert flags["browser_gatherUsageStats"] is False
 
 
