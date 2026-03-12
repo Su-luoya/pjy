@@ -19,3 +19,21 @@ SUPPLIER_ALIAS_MAP = {
 }
 
 EXCLUDED_SUPPLIER_KEYWORDS = []
+
+
+def supplier_filter_short_label(excluded_keywords: list[str] | None = None) -> str:
+    """Short label for supplier filtering mode."""
+    keywords = EXCLUDED_SUPPLIER_KEYWORDS if excluded_keywords is None else excluded_keywords
+    active = [keyword for keyword in keywords if keyword]
+    if not active:
+        return "当前未排除"
+    return "按关键词排除"
+
+
+def supplier_filter_description(excluded_keywords: list[str] | None = None) -> str:
+    """Detailed description for supplier filtering mode."""
+    keywords = EXCLUDED_SUPPLIER_KEYWORDS if excluded_keywords is None else excluded_keywords
+    active = [keyword for keyword in keywords if keyword]
+    if not active:
+        return "当前未排除供应商"
+    return "按关键词排除：" + "、".join(active)

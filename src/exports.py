@@ -13,7 +13,7 @@ from src.analysis import AnalysisBundle
 CSV_FILE_NAMES = {
     "table_a": "表A_供应商年度汇总.csv",
     "table_b": "表B_年度总览.csv",
-    "table_c": "表C_年度金额环比_排除指定供应商.csv",
+    "table_c": "表C_年度金额环比.csv",
 }
 
 

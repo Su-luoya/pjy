@@ -77,7 +77,7 @@ def test_cli_default_exports_all_outputs(tmp_path: Path, monkeypatch: pytest.Mon
     assert (output_dir / "供应商年度分析结果.xlsx").exists()
     assert (output_dir / "表A_供应商年度汇总.csv").exists()
     assert (output_dir / "表B_年度总览.csv").exists()
-    assert (output_dir / "表C_年度金额环比_排除指定供应商.csv").exists()
+    assert (output_dir / "表C_年度金额环比.csv").exists()
 
 
 def test_find_available_port_skips_occupied_port() -> None:

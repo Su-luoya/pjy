@@ -9,7 +9,7 @@ import streamlit as st
 
 from src.analysis import build_analysis
 from src.charts import create_annual_amount_chart, create_supplier_chart
-from src.config import EXCLUDED_SUPPLIER_KEYWORDS
+from src.config import supplier_filter_description, supplier_filter_short_label
 from src.exports import build_excel_download, to_csv_bytes
 from src.io_parser import parse_excel_file
 from src.reporting import generate_brief_pdf, generate_full_pdf
@@ -84,6 +84,8 @@ def run() -> None:
     _ensure_pdf_cache(file_key, bundle)
 
     st.success("处理完成。")
+    filter_label = supplier_filter_short_label()
+    filter_description = supplier_filter_description()
 
     col1, col2, col3 = st.columns(3)
     col1.metric("有效明细行", f"{bundle.row_count:,}")
@@ -100,13 +102,9 @@ def run() -> None:
         mime="text/csv",
     )
 
-    st.caption(
-        "图表和年度金额环比已排除供应商关键词："
-        + "、".join(EXCLUDED_SUPPLIER_KEYWORDS)
-        + "。"
-    )
+    st.caption(f"图表和年度金额环比口径：{filter_description}。")
 
-    st.subheader("供应商图表（仅展示非排除供应商）")
+    st.subheader(f"供应商图表（{filter_label}）")
     options = supplier_options_for_charts(bundle.table_a)
     if not options:
         st.info("无可展示的供应商图表数据。")
@@ -143,12 +141,12 @@ def run() -> None:
         mime="text/csv",
     )
 
-    st.subheader("表 C：年度供货金额环比（排除指定供应商）")
+    st.subheader(f"表 C：年度供货金额环比（{filter_description}）")
     st.dataframe(bundle.table_c, use_container_width=True, column_config=_dataframe_config())
     st.download_button(
         "下载表 C（CSV）",
         data=to_csv_bytes(bundle.table_c),
-        file_name="表C_年度金额环比_排除指定供应商.csv",
+        file_name="表C_年度金额环比.csv",
         mime="text/csv",
     )
 

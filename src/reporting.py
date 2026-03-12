@@ -26,6 +26,7 @@ from reportlab.platypus import (
 
 from src.analysis import AnalysisBundle
 from src.charts import create_annual_amount_chart, create_supplier_chart
+from src.config import supplier_filter_description
 from src.transform import supplier_options_for_charts
 
 PRIMARY_COLOR = colors.HexColor("#0F4C81")
@@ -498,13 +499,14 @@ def _build_full_sections(
 ) -> None:
     story.append(PageBreak())
     story.append(Paragraph("年度明细与供应商结构", styles["h1"]))
+    filter_description = supplier_filter_description()
     story.extend(
         _build_table_flowables(bundle.table_b, "年度总览（表 B）", styles, font_name, rows_per_chunk=26)
     )
     story.extend(
         _build_table_flowables(
             bundle.table_c,
-            "年度金额环比（表 C，已排除指定供应商）",
+            f"年度金额环比（表 C，{filter_description}）",
             styles,
             font_name,
             rows_per_chunk=26,
@@ -533,7 +535,7 @@ def _build_full_sections(
 
     supplier_names = supplier_options_for_charts(bundle.table_a)
     if not supplier_names:
-        story.append(Paragraph("无可展示供应商（图表口径已应用排除规则）。", styles["muted"]))
+        story.append(Paragraph(f"无可展示供应商（图表口径：{filter_description}）。", styles["muted"]))
         return
 
     for index, supplier in enumerate(supplier_names, start=1):

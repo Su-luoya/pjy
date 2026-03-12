@@ -6,6 +6,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from src.config import supplier_filter_description
+
 
 def create_metric_with_yoy_chart(
     df: pd.DataFrame,
@@ -100,6 +102,6 @@ def create_annual_amount_chart(annual_amount_yoy_df: pd.DataFrame) -> go.Figure:
         x_col="年份",
         metric_col="总金额",
         yoy_col="金额环比%",
-        title="年度供货金额与环比（已排除指定供应商）",
+        title=f"年度供货金额与环比（{supplier_filter_description()}）",
         metric_label="总金额",
     )

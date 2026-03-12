@@ -71,7 +71,7 @@ def test_compute_supplier_year_summary_uses_row_count_and_yoy_rules() -> None:
     assert pd.isna(b_2021["金额环比%"])  # 上一年为 0，环比应为空
 
 
-def test_annual_summary_and_filtered_yoy_respect_exclusion_scope() -> None:
+def test_annual_summary_and_filtered_yoy_defaults_to_no_exclusion() -> None:
     detail_df = pd.DataFrame(
         [
             {"年份": 2020, "供应商": "普通供应商", "品名清洗": "A", "金额": 100},
@@ -85,6 +85,6 @@ def test_annual_summary_and_filtered_yoy_respect_exclusion_scope() -> None:
     annual_filtered = compute_filtered_annual_amount_yoy(detail_df)
 
     assert annual_all["总金额"].tolist() == [1000, 300]
-    assert annual_filtered["总金额"].tolist() == [100, 200]
+    assert annual_filtered["总金额"].tolist() == [1000, 300]
     assert pd.isna(annual_filtered.iloc[0]["金额环比%"])
-    assert annual_filtered.iloc[1]["金额环比%"] == 100
+    assert annual_filtered.iloc[1]["金额环比%"] == -70
