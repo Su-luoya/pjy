@@ -60,11 +60,45 @@ jobs:
         run: |
           $exe = Resolve-Path dist/supplier-analysis/supplier-analysis.exe
           $proc = Start-Process -FilePath $exe -ArgumentList "--no-browser","--port","8501" -PassThru
-          Start-Sleep -Seconds 12
-          if ($proc.HasExited) {
-            throw "Launcher exited early"
+          try {
+            $healthOk = $false
+            $rootOk = $false
+
+            for ($i = 0; $i -lt 45; $i++) {
+              if ($proc.HasExited) {
+                throw "Launcher exited early (ExitCode=$($proc.ExitCode))"
+              }
+
+              try {
+                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:8501/_stcore/health" -TimeoutSec 2 -SkipHttpErrorCheck
+                if ($healthResp.StatusCode -eq 200 -and $healthResp.Content.Trim().ToLower() -eq "ok") {
+                  $healthOk = $true
+                }
+              } catch {
+              }
+
+              try {
+                $rootResp = Invoke-WebRequest -Uri "http://127.0.0.1:8501/" -TimeoutSec 2 -SkipHttpErrorCheck
+                if ($rootResp.StatusCode -ne 404) {
+                  $rootOk = $true
+                }
+              } catch {
+              }
+
+              if ($healthOk -and $rootOk) {
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+
+            if (-not $healthOk -or -not $rootOk) {
+              throw "Smoke test failed (healthOk=$healthOk rootOk=$rootOk)"
+            }
+          } finally {
+            if (-not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
           }
-          Stop-Process -Id $proc.Id -Force
 
       - name: Package zip artifact
         shell: pwsh

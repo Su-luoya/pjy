@@ -7,7 +7,35 @@ import pandas as pd
 import pytest
 
 from src.cli import main as cli_main
-from src.launcher import find_available_port
+from src import launcher as launcher_module
+from src.launcher import HttpProbeResult, find_available_port
+
+
+class _FakeProcess:
+    def __init__(self, wait_code: int = 0, poll_code: int | None = None) -> None:
+        self._wait_code = wait_code
+        self.returncode = poll_code
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        _ = timeout
+        if self.returncode is None:
+            self.returncode = self._wait_code
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminated = True
+        if self.returncode is None:
+            self.returncode = 0
+
+    def kill(self) -> None:
+        self.killed = True
+        if self.returncode is None:
+            self.returncode = 0
 
 
 def _build_sample_excel(path: Path) -> None:
@@ -65,3 +93,107 @@ def test_find_available_port_skips_occupied_port() -> None:
 
     assert chosen_port != occupied_port
     assert chosen_port > occupied_port
+
+
+def test_probe_streamlit_readiness_accepts_health_ok_and_root_not_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_responses = {
+        "http://127.0.0.1:8501/_stcore/health": HttpProbeResult(status_code=200, body="ok"),
+        "http://127.0.0.1:8501/": HttpProbeResult(status_code=200, body="<html>"),
+    }
+    monkeypatch.setattr(launcher_module, "_http_get", lambda url: fake_responses[url])
+
+    readiness = launcher_module.probe_streamlit_readiness("127.0.0.1", 8501)
+
+    assert readiness.ready is True
+    assert readiness.health_ok is True
+    assert readiness.root_ok is True
+
+
+def test_probe_streamlit_readiness_rejects_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_responses = {
+        "http://127.0.0.1:8501/_stcore/health": HttpProbeResult(status_code=404, body="not found"),
+        "http://127.0.0.1:8501/": HttpProbeResult(status_code=200, body="<html>"),
+    }
+    monkeypatch.setattr(launcher_module, "_http_get", lambda url: fake_responses[url])
+
+    readiness = launcher_module.probe_streamlit_readiness("127.0.0.1", 8501)
+
+    assert readiness.ready is False
+    assert readiness.health_ok is False
+    assert readiness.root_ok is True
+
+
+def test_probe_streamlit_readiness_rejects_connection_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_responses = {
+        "http://127.0.0.1:8501/_stcore/health": HttpProbeResult(status_code=None, error="connection refused"),
+        "http://127.0.0.1:8501/": HttpProbeResult(status_code=None, error="connection refused"),
+    }
+    monkeypatch.setattr(launcher_module, "_http_get", lambda url: fake_responses[url])
+
+    readiness = launcher_module.probe_streamlit_readiness("127.0.0.1", 8501)
+
+    assert readiness.ready is False
+    assert readiness.health_ok is False
+    assert readiness.root_ok is False
+
+
+def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 2)
+    monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(launcher_module, "is_port_available", lambda _host, _port: True)
+
+    all_processes = [_FakeProcess(), _FakeProcess()]
+    created_processes = list(all_processes)
+    popen_calls: list[list[str]] = []
+
+    def fake_popen(command: list[str]) -> _FakeProcess:
+        popen_calls.append(command)
+        return created_processes.pop(0)
+
+    readiness_results = iter([(False, "root=404"), (True, "ok")])
+    waited_ports: list[int] = []
+
+    def fake_wait_for_http_ready(
+        host: str,
+        port: int,
+        timeout_sec: float = 20.0,
+        child: _FakeProcess | None = None,
+    ) -> tuple[bool, str]:
+        _ = host, timeout_sec, child
+        waited_ports.append(port)
+        return next(readiness_results)
+
+    monkeypatch.setattr(launcher_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(launcher_module, "wait_for_http_ready", fake_wait_for_http_ready)
+
+    browser_opened: list[str] = []
+    monkeypatch.setattr(launcher_module.webbrowser, "open", lambda url: browser_opened.append(url))
+
+    exit_code = launcher_module._run_parent("127.0.0.1", preferred_port=8501, no_browser=True)
+
+    assert exit_code == 0
+    assert waited_ports == [8501, 8502]
+    assert popen_calls[0][-1] == "8501"
+    assert popen_calls[1][-1] == "8502"
+    assert all_processes[0].terminated is True
+    assert browser_opened == []
+
+
+def test_parent_reports_child_early_exit_without_opening_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 1)
+    monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(launcher_module, "is_port_available", lambda _host, _port: True)
+    monkeypatch.setattr(launcher_module.subprocess, "Popen", lambda _command: _FakeProcess(poll_code=3))
+    monkeypatch.setattr(
+        launcher_module,
+        "wait_for_http_ready",
+        lambda _host, _port, timeout_sec=20.0, child=None: (False, "子进程提前退出，返回码=3"),
+    )
+
+    browser_opened: list[str] = []
+    monkeypatch.setattr(launcher_module.webbrowser, "open", lambda url: browser_opened.append(url))
+
+    with pytest.raises(RuntimeError, match="返回码=3"):
+        launcher_module._run_parent("127.0.0.1", preferred_port=8501, no_browser=False)
+
+    assert browser_opened == []
