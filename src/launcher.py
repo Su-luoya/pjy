@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import atexit
 from dataclasses import dataclass
+import os
 import signal
 import socket
 import subprocess
@@ -162,6 +163,13 @@ def _build_worker_command(host: str, port: int) -> list[str]:
     return [sys.executable, "-m", "src.launcher", "--serve", "--host", host, "--port", str(port)]
 
 
+def _build_worker_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["STREAMLIT_SERVER_BASE_URL_PATH"] = ""
+    env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+    return env
+
+
 def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
     if proc.poll() is not None:
         return
@@ -192,7 +200,7 @@ def _run_parent(host: str, preferred_port: int, no_browser: bool) -> int:
 
         attempted_ports.append(port)
         url = f"http://{host}:{port}"
-        child = subprocess.Popen(_build_worker_command(host=host, port=port))
+        child = subprocess.Popen(_build_worker_command(host=host, port=port), env=_build_worker_env())
         current_child = child
 
         ready, status = wait_for_http_ready(host, port, timeout_sec=25, child=child)

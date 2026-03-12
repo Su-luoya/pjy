@@ -141,13 +141,14 @@ def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 2)
     monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(launcher_module, "is_port_available", lambda _host, _port: True)
+    monkeypatch.setattr(launcher_module, "_build_worker_env", lambda: {"FOO": "BAR"})
 
     all_processes = [_FakeProcess(), _FakeProcess()]
     created_processes = list(all_processes)
-    popen_calls: list[list[str]] = []
+    popen_calls: list[tuple[list[str], dict[str, str] | None]] = []
 
-    def fake_popen(command: list[str]) -> _FakeProcess:
-        popen_calls.append(command)
+    def fake_popen(command: list[str], env: dict[str, str] | None = None) -> _FakeProcess:
+        popen_calls.append((command, env))
         return created_processes.pop(0)
 
     readiness_results = iter([(False, "root=404"), (True, "ok")])
@@ -173,8 +174,9 @@ def test_parent_retries_next_port_when_root_is_404(monkeypatch: pytest.MonkeyPat
 
     assert exit_code == 0
     assert waited_ports == [8501, 8502]
-    assert popen_calls[0][-1] == "8501"
-    assert popen_calls[1][-1] == "8502"
+    assert popen_calls[0][0][-1] == "8501"
+    assert popen_calls[1][0][-1] == "8502"
+    assert popen_calls[0][1] == {"FOO": "BAR"}
     assert all_processes[0].terminated is True
     assert browser_opened == []
 
@@ -183,7 +185,11 @@ def test_parent_reports_child_early_exit_without_opening_browser(monkeypatch: py
     monkeypatch.setattr(launcher_module, "MAX_PORT_TRIES", 1)
     monkeypatch.setattr(launcher_module.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(launcher_module, "is_port_available", lambda _host, _port: True)
-    monkeypatch.setattr(launcher_module.subprocess, "Popen", lambda _command: _FakeProcess(poll_code=3))
+    monkeypatch.setattr(
+        launcher_module.subprocess,
+        "Popen",
+        lambda _command, env=None: _FakeProcess(poll_code=3),
+    )
     monkeypatch.setattr(
         launcher_module,
         "wait_for_http_ready",

@@ -63,6 +63,8 @@ jobs:
           try {
             $healthOk = $false
             $rootOk = $false
+            $lastHealth = "n/a"
+            $lastRoot = "n/a"
 
             for ($i = 0; $i -lt 45; $i++) {
               if ($proc.HasExited) {
@@ -71,18 +73,22 @@ jobs:
 
               try {
                 $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:8501/_stcore/health" -TimeoutSec 2 -SkipHttpErrorCheck
+                $lastHealth = "status=$($healthResp.StatusCode) body=$($healthResp.Content.Trim())"
                 if ($healthResp.StatusCode -eq 200 -and $healthResp.Content.Trim().ToLower() -eq "ok") {
                   $healthOk = $true
                 }
               } catch {
+                $lastHealth = "error=$($_.Exception.Message)"
               }
 
               try {
-                $rootResp = Invoke-WebRequest -Uri "http://127.0.0.1:8501/" -TimeoutSec 2 -SkipHttpErrorCheck
+                $rootResp = Invoke-WebRequest -Uri "http://127.0.0.1:8501/" -Method Head -TimeoutSec 5 -SkipHttpErrorCheck
+                $lastRoot = "status=$($rootResp.StatusCode)"
                 if ($rootResp.StatusCode -ne 404) {
                   $rootOk = $true
                 }
               } catch {
+                $lastRoot = "error=$($_.Exception.Message)"
               }
 
               if ($healthOk -and $rootOk) {
@@ -92,7 +98,7 @@ jobs:
             }
 
             if (-not $healthOk -or -not $rootOk) {
-              throw "Smoke test failed (healthOk=$healthOk rootOk=$rootOk)"
+              throw "Smoke test failed (healthOk=$healthOk rootOk=$rootOk lastHealth=$lastHealth lastRoot=$lastRoot)"
             }
           } finally {
             if (-not $proc.HasExited) {
